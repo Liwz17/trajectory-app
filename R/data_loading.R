@@ -86,20 +86,43 @@ to_hires_coords <- function(pos, hires_scale) {
 }
 
 
+# ---- 读图：确保返回 raster ----
+load_image <- function(path) {
+  if (grepl("\\.png$", path, ignore.case = TRUE)) {
+    arr <- png::readPNG(path)     # H x W x C, 0..1
+  } else if (grepl("\\.jpe?g$", path, ignore.case = TRUE)) {
+    arr <- jpeg::readJPEG(path)
+  } else stop("Only PNG/JPG supported.")
 
-# img_w <- dim(img)[2]
-# img_h <- dim(img)[1]
+  # 灰度图转 3 通道
+  if (length(dim(arr)) == 2L) {
+    arr <- array(rep(arr, each = 3), dim = c(dim(arr), 3))
+  }
+  img_h <- dim(arr)[1]; img_w <- dim(arr)[2]
+  img_rs <- as.raster(arr)        # 关键：转 raster
+  list(img = img_rs, img_w = img_w, img_h = img_h)
+}
 
-# # fullres → hires 坐标
-# pos$x_hires <- pos$pxl_col_fullres * hires_scale
-# pos$y_hires <- pos$pxl_row_fullres * hires_scale
 
-# gene_choices <- head(gene_names, MAX_GENES)
 
-# # Debug check
-# cat(">>> types after loading:\n")
-# print(str(gene_names))
-# print(str(barcodes))
-# print(str(rownames(counts)))
-# print(str(colnames(counts)))
+raster_to_data_uri <- function(rs, width, height) {
+  im <- magick::image_read(rs)
+  im <- magick::image_resize(im, paste0(width, "x", height, "!"))  # 强制到 W x H
+  tf <- tempfile(fileext = ".png")
+  magick::image_write(im, path = tf, format = "png")
+  raw <- readBin(tf, what = "raw", n = file.info(tf)$size)
+  uri <- paste0("data:image/png;base64,", base64enc::base64encode(raw))
+  uri
+}
 
+
+# R/03_reactives.R
+make_expr_vec <- function(gene_input, counts_rv, pos_rv, do_log1p) {
+  reactive({
+    req(gene_input(), counts_rv(), pos_rv())
+    gene <- gene_input(); counts <- counts_rv(); pos <- pos_rv()
+    v <- if (gene %in% rownames(counts)) as.numeric(counts[gene, pos$barcode]) else rep(0, nrow(pos))
+    if (isTRUE(do_log1p())) v <- log1p(v)
+    v
+  })
+}
