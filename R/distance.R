@@ -6,34 +6,70 @@
 # - selected_idx: 整数向量（1..nrow(pos)），表示被圈选的行号（tumor）
 # 输出：
 # - data.frame(pos 原列 + category1 + distance1)
-compute_signed_distance_to_selection <- function(pos, selected_idx) {
-  n <- nrow(pos)
-  if (n == 0) return(transform(pos, category1 = NA_character_, distance1 = NA_real_))
+# 依赖：RANN
+# label_index_list: 命名 list，如 list(tumor = c(1,5,9), tls = c(2,3))
+# 结果：对每个 label 生成一列 dist_<label>（该结构内为负，外部为正）
+# 合并并去重：同一 label 下，同一 barcode 只保留一次
+append_annotations <- function(current_df, barcodes, label) {
+  stopifnot(is.character(barcodes), length(label) == 1)
+  add <- data.frame(barcode = unique(barcodes), label = label, stringsAsFactors = FALSE)
+  out <- rbind(current_df, add)
+  out <- unique(out)   # 去重
+  out[order(out$label, out$barcode), , drop = FALSE]
+}
 
-  tumor_idx     <- sort(unique(as.integer(selected_idx)))
-  tumor_mask    <- rep(FALSE, n); tumor_mask[tumor_idx] <- TRUE
-  non_tumor_idx <- which(!tumor_mask)
-
-  out <- pos
-  out$category1 <- ifelse(tumor_mask, "tumor", "non-tumor")
-  out$distance1 <- NA_real_
-
-  # 空集保护
-  if (length(tumor_idx) == 0 && length(non_tumor_idx) == 0) return(out)
-  coords <- cbind(out$x_hires, out$y_hires)
-
-  # 非肿瘤 → 最近肿瘤（正号）
-  if (length(non_tumor_idx) > 0 && length(tumor_idx) > 0) {
-    nn_nt_to_t <- RANN::nn2(data = coords[tumor_idx, , drop = FALSE],
-                            query = coords[non_tumor_idx, , drop = FALSE], k = 1)$nn.dists[, 1]
-    out$distance1[non_tumor_idx] <- nn_nt_to_t  # 正数
+# 汇总统计
+summarize_annotations <- function(df) {
+  if (nrow(df) == 0) {
+    return(data.frame(label = character(), n = integer()))
   }
+  tb <- as.data.frame(table(df$label), stringsAsFactors = FALSE)
+  colnames(tb) <- c("label", "n")
+  tb[order(-tb$n), ]   # 按数量降序
+}
 
-  # 肿瘤 → 最近非肿瘤（负号）
-  if (length(tumor_idx) > 0 && length(non_tumor_idx) > 0) {
-    nn_t_to_nt <- RANN::nn2(data = coords[non_tumor_idx, , drop = FALSE],
-                            query = coords[tumor_idx, , drop = FALSE], k = 1)$nn.dists[, 1]
-    out$distance1[tumor_idx] <- -nn_t_to_nt     # 负数
+
+
+
+compute_signed_distance_per_label <- function(pos, label_index_list) {
+  stopifnot(is.data.frame(pos), all(c("x_hires","y_hires") %in% names(pos)))
+  n <- nrow(pos)
+  if (n == 0 || length(label_index_list) == 0) return(pos)
+
+  coords <- cbind(pos$x_hires, pos$y_hires)
+  out <- pos
+
+  # 为每个 label 生成带符号距离
+  for (lab in names(label_index_list)) {
+    idx_lab <- sort(unique(as.integer(label_index_list[[lab]])))
+    idx_lab <- idx_lab[idx_lab >= 1 & idx_lab <= n]
+    if (length(idx_lab) == 0) {
+      out[[paste0("dist_", lab)]] <- NA_real_
+      next
+    }
+    mask_lab <- rep(FALSE, n); mask_lab[idx_lab] <- TRUE
+    idx_non  <- which(!mask_lab)
+
+    dist_vec <- rep(NA_real_, n)
+    # 非该结构 → 最近该结构（正）
+    if (length(idx_non) > 0) {
+      d1 <- RANN::nn2(data  = coords[idx_lab, , drop = FALSE],
+                      query = coords[idx_non, , drop = FALSE], k = 1)$nn.dists[, 1]
+      dist_vec[idx_non] <- d1
+    }
+    # 该结构 → 最近非该结构（负）
+    if (length(idx_lab) > 0 && length(idx_non) > 0) {
+      d2 <- RANN::nn2(data  = coords[idx_non, , drop = FALSE],
+                      query = coords[idx_lab, , drop = FALSE], k = 1)$nn.dists[, 1]
+      dist_vec[idx_lab] <- -d2
+    } else if (length(idx_non) == 0) {
+      # 所有点都属于该结构：约定为 0（或 NA），这里给 0
+      dist_vec[idx_lab] <- 0
+    }
+
+    # 列名尽量合法化
+    colname <- paste0("dist_", make.names(lab))
+    out[[colname]] <- dist_vec
   }
 
   out
