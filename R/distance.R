@@ -74,3 +74,28 @@ compute_signed_distance_per_label <- function(pos, label_index_list) {
 
   out
 }
+
+
+setup_multi_distance <- function(output, rv, expr_vec, label_index_list) {
+  multi_distance_df <- reactive({
+    req(rv$pos)
+    lst <- label_index_list()
+    if (length(lst) == 0) return(rv$pos)
+    compute_signed_distance_per_label(rv$pos, lst)
+  })
+
+  output$dl_multi_distance <- downloadHandler(
+    filename = function() paste0("spots_with_signed_distance_multi_",
+                                format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv"),
+    content = function(file) {
+      df <- multi_distance_df()
+      df$expr <- expr_vec()
+      dist_cols <- grep("^dist_", names(df), value = TRUE)
+      base_cols <- intersect(c("barcode","x_hires","y_hires"), names(df))
+      keep <- c(base_cols, dist_cols, "expr")
+      utils::write.csv(df[, keep, drop = FALSE], file, row.names = FALSE)
+    }
+  )
+
+  multi_distance_df
+}

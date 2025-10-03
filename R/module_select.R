@@ -197,3 +197,52 @@ selectSpotsServer <- function(id, pos_reactive, expr_reactive, img_reactive) {
     ))
   })
 }
+
+setup_selection <- function(output, session, selected_idx, sel_mode_input, clear_btn_input) {
+  attach_plotly_selection_handlers(
+    output_id       = "he_plotly",
+    session         = session,
+    selected_idx    = selected_idx,
+    sel_mode_input  = sel_mode_input,
+    clear_btn_input = clear_btn_input
+  )
+  output$sel_count <- renderText(paste0("已选 spots: ", length(selected_idx())))
+}
+
+
+
+
+init_annotations <- function() {
+  reactiveVal(data.frame(barcode = character(), label = character(), stringsAsFactors = FALSE))
+}
+
+setup_annotation_observers <- function(input, output, rv, selected_idx, annotations) {
+  # 添加
+  observeEvent(input$add_annotation, {
+    req(rv$pos, length(selected_idx()) > 0, input$bio_label)
+    bc <- rv$pos$barcode[selected_idx()]
+    annotations( append_annotations(annotations(), bc, input$bio_label) )
+  })
+
+  # 清空
+  observeEvent(input$clear_annotations, {
+    annotations(data.frame(barcode = character(), label = character(), stringsAsFactors = FALSE))
+  })
+
+  # 展示
+  output$anno_summary <- renderTable({
+    summarize_annotations(annotations())
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+}
+
+# 转换成 label->索引 list
+make_label_index_list <- function(rv, annotations) {
+  req(rv$pos)
+  ann <- annotations()
+  if (nrow(ann) == 0) return(list())
+  m <- match(ann$barcode, rv$pos$barcode)
+  keep <- !is.na(m)
+  if (!any(keep)) return(list())
+  ann$idx <- m
+  split(ann$idx, ann$label)
+}
