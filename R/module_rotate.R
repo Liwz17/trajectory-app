@@ -1,22 +1,22 @@
 # R/02_module_rotate.R
-# 依赖：magick
-# 安装：install.packages("magick")；若失败先装系统 ImageMagick
+# Dependency: magick
+# Install: install.packages("magick"); if it fails, install system ImageMagick first
 
-rotateImageUI <- function(id, title = "HE 图像旋转") {
+rotateImageUI <- function(id, title = "HE Image Rotation") {
   ns <- NS(id)
   tagList(
     tags$h4(title),
-    sliderInput(ns("angle"), "旋转角度 (°)", min = -180, max = 180, value = 0, step = 1),
+    sliderInput(ns("angle"), "Rotation angle (°)", min = -180, max = 180, value = 0, step = 1),
     fluidRow(
       column(4, actionButton(ns("ccw90"), "↺ 90°")),
-      column(4, actionButton(ns("reset"), "重置")),
+      column(4, actionButton(ns("reset"), "Reset")),
       column(4, actionButton(ns("cw90"),  "↻ 90°"))
     ),
     fluidRow(
-      column(6, actionButton(ns("flip_h"), "水平翻转")),
-      column(6, actionButton(ns("flip_v"), "垂直翻转"))
+      column(6, actionButton(ns("flip_h"), "Flip horizontally")),
+      column(6, actionButton(ns("flip_v"), "Flip vertically"))
     ),
-    helpText("只旋转或翻转背景 HE 图像，点坐标保持不变。")
+    helpText("Only rotate or flip the background HE image; spot coordinates remain unchanged.")
   )
 }
 
@@ -25,12 +25,12 @@ rotateImageServer <- function(id, image_path_reactive) {
   moduleServer(id, function(input, output, session) {
     requireNamespace("magick")
 
-    # 内部维护角度和翻转状态
+    # Internal state: angle and flip
     angle <- reactiveVal(0)
     flip_h <- reactiveVal(FALSE)
     flip_v <- reactiveVal(FALSE)
 
-    # 旋转角度控制
+    # Rotation angle controls
     observeEvent(input$angle,  ignoreInit = TRUE, { angle(input$angle) })
     observeEvent(input$ccw90,                     { angle((angle() - 90) %% 360) })
     observeEvent(input$cw90,                      { angle((angle() + 90) %% 360) })
@@ -38,21 +38,21 @@ rotateImageServer <- function(id, image_path_reactive) {
       angle(0); flip_h(FALSE); flip_v(FALSE)
     })
 
-    # 翻转控制
+    # Flip controls
     observeEvent(input$flip_h, { flip_h(!flip_h()) })
     observeEvent(input$flip_v, { flip_v(!flip_v()) })
 
-    # 产出：旋转+翻转后的 raster 与宽高
+    # Output: rotated + flipped raster and width/height
     rotated <- reactive({
       path <- image_path_reactive()
       req(path)
 
       im <- magick::image_read(path)
-      # 旋转
+      # Rotation
       if (angle() != 0) {
         im <- magick::image_rotate(im, degrees = angle())
       }
-      # 翻转
+      # Flip
       if (isTRUE(flip_h())) im <- magick::image_flop(im)
       if (isTRUE(flip_v())) im <- magick::image_flip(im)
 
@@ -62,7 +62,7 @@ rotateImageServer <- function(id, image_path_reactive) {
            angle = angle(), flip_h = flip_h(), flip_v = flip_v())
     })
 
-    # 对外暴露 getter
+    # Expose getter to outside
     list(get = rotated,
          angle = reactive(angle()),
          flip_h = reactive(flip_h()),
