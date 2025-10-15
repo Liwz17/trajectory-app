@@ -1,1 +1,0 @@
-`%||%` <- function(a, b) if (!is.null(a) && length(a) > 0) a else b
