@@ -56,9 +56,7 @@ umapUI <- function(id) {
 }
 
 
-
-
-umapServer <- function(id, rv) {
+umapServer <- function(id, rv, selected_idx_r = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
@@ -80,7 +78,8 @@ umapServer <- function(id, rv) {
       if (src == "sparkx") {
         df  <- as.data.frame(rv$sparkx_res)
         nms <- names(df); ln <- tolower(nms)
-        gene_col <- nms[match("gene", ln)]; q_col <- nms[match("qval", ln)]
+        gene_col <- nms[match("gene", ln)]
+        q_col    <- nms[match("qval", ln)]
         fdr <- as.numeric(input$fdr); if (!is.finite(fdr)) fdr <- 0.05
         g <- df[[gene_col]][df[[q_col]] <= fdr]
         g <- intersect(as.character(g), rv$gene_names)
@@ -194,7 +193,7 @@ umapServer <- function(id, rv) {
       v
     })
 
-    # —— UMAP Plot（Plotly + Viridis 色系；其余配置最简） —— #
+    # —— UMAP Plot（含红色高亮 trace；调用 reactive 只在此反应环境中进行） —— #
     output$umap_plot <- plotly::renderPlotly({
       emb  <- run_umap(); req(emb)
       expr <- color_expr()
@@ -206,7 +205,7 @@ umapServer <- function(id, rv) {
         expr = expr
       )
 
-      plotly::plot_ly(
+      p <- plotly::plot_ly(
         df, x = ~x, y = ~y, type = "scattergl", mode = "markers",
         marker = list(
           size = 4, opacity = 0.8,
@@ -217,8 +216,52 @@ umapServer <- function(id, rv) {
                        ifelse(is.finite(expr),
                               paste0("<br>expr: ", signif(expr, 4)),
                               "<br>expr: NA")),
-        hoverinfo = "text"
+        hoverinfo = "text",
+        showlegend = FALSE
       )
+
+      # —— 红色高亮：只能在 reactive consumer 内调用 selected_idx_r() —— #
+      sel_idx <- integer(0)
+      if (!is.null(selected_idx_r)) {
+        sel_idx <- tryCatch(selected_idx_r(), error = function(e) integer(0))
+      }
+      sel_idx <- unique(as.integer(sel_idx))
+
+      if (length(sel_idx) > 0) {
+        # 优先按 barcodes 位置索引
+        sel_bc <- character(0)
+        if (!is.null(rv$barcodes) && length(rv$barcodes) > 0) {
+          valid <- sel_idx[sel_idx >= 1 & sel_idx <= length(rv$barcodes)]
+          sel_bc <- rv$barcodes[valid]
+        }
+        sel_mask <- if (length(sel_bc)) emb$barcode %in% sel_bc else rep(FALSE, nrow(emb))
+
+        # 如果没有匹配到，则按 UMAP 行号兜底
+        if (!any(sel_mask)) {
+          valid2 <- sel_idx[sel_idx >= 1 & sel_idx <= nrow(emb)]
+          sel_mask <- rep(FALSE, nrow(emb))
+          sel_mask[valid2] <- TRUE
+        }
+
+        if (any(sel_mask)) {
+          df_sel <- df[sel_mask, , drop = FALSE]
+          p <- p %>%
+            plotly::add_trace(
+              data = df_sel,
+              x = ~x, y = ~y, type = "scattergl", mode = "markers",
+              marker = list(
+                size = 7, opacity = 0.95,
+                color = "red",
+                line = list(width = 1, color = "white")
+              ),
+              hoverinfo = "text",
+              name = "Selected",
+              showlegend = TRUE
+            )
+        }
+      }
+
+      p
     })
 
     # 表格预览
