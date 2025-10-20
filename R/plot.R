@@ -35,6 +35,7 @@ build_he_plotly_figure <- function(pos, expr, img_obj, ptsize, alpha, gene_label
 }
 
 
+
 # R/06_select_plotly.R
 attach_plotly_selection_handlers <- function(output_id, session, selected_idx, sel_mode_input, clear_btn_input) {
   observeEvent(plotly::event_data("plotly_selected", source = "main"), {
@@ -57,4 +58,10 @@ attach_plotly_selection_handlers <- function(output_id, session, selected_idx, s
     plotly::plotlyProxy(output_id, session) %>%
       plotly::plotlyProxyInvoke("restyle", list(selectedpoints = list(NULL)))
   })
+}
+
+
+get_current_image <- function(rot, rv) {
+  ro <- tryCatch(rot$get(), error=function(e) NULL)
+  if (!is.null(ro)) ro else if (!is.null(rv$img)) list(img=rv$img, img_w=rv$img_w, img_h=rv$img_h) else NULL
 }

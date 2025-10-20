@@ -126,3 +126,28 @@ make_expr_vec <- function(gene_input, counts_rv, pos_rv, do_log1p) {
     v
   })
 }
+
+
+`%||%` <- function(a,b) if (is.null(a) || length(a)==0 || !nzchar(a)) b else a
+
+pick_mtx_triplet_paths <- function(df) {
+  pick <- function(pats) {
+    idx <- which(Reduce(`|`, lapply(pats, function(p) grepl(p, df$name, ignore.case=TRUE))))
+    if (length(idx)) df$datapath[idx[1]] else NA_character_
+  }
+  list(
+    mtx = pick(c("^matrix\\.mtx(\\.gz)?$")),
+    bar = pick(c("^barcodes\\.tsv(\\.gz)?$")),
+    fea = pick(c("^features\\.tsv(\\.gz)?$", "^genes\\.tsv(\\.gz)?$"))
+  )
+}
+
+load_and_align_positions <- function(path, counts=NULL) {
+  pos <- load_positions(path)
+  if (!is.null(counts)) {
+    pos <- subset(pos, in_tissue == 1 & barcode %in% colnames(counts))
+  } else {
+    pos <- subset(pos, in_tissue == 1)
+  }
+  pos
+}

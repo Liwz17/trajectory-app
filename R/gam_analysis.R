@@ -184,3 +184,106 @@ compute_log_offset <- function(counts, barcodes, pseudocount = 1e-8, normalize =
   log_off <- log(pmax(sf, pseudocount))
   list(size_factor = sf, log_off = log_off, counts_aligned = counts_aln)
 }
+
+
+# exportToolsUI_global <- function(id) {
+#   ns <- NS(id)
+#   tagList(
+#     hr(), h4("Export & tools"),
+#     fluidRow(
+#       column(3, actionButton(ns("clear_sel"), "Clear selection")),
+#       column(3, downloadButton(ns("dl_sel"), "Download selected CSV")),
+#       column(3, downloadButton(ns("dl_multi_distance"), "Download all structure distances")),
+#       column(3, downloadButton(ns("dl_gam_results"), "Download GAM results"))  # ← 合并进来
+#     )
+#   )
+# }
+
+
+# -- Server 模块 --
+gammmServer <- function(id, rv, multi_distance_df_r, log1p_r = reactive(FALSE)) {
+  moduleServer(id, function(input, output, session) {
+
+    `%||%` <- function(a,b) if (is.null(a) || length(a)==0 || (is.atomic(a) && !isTRUE(is.finite(a)))) b else a
+
+    # 兜底：如果项目里没有 compute_log_offset，就临时内置一个
+    .compute_log_offset <- function(counts, barcodes, normalize = FALSE) {
+      ord <- match(barcodes, colnames(counts))
+      ok  <- !is.na(ord)
+      counts_aligned <- counts[, ord[ok], drop = FALSE]
+      sf <- rep(1, ncol(counts_aligned))
+      if (isTRUE(normalize)) {
+        lib <- Matrix::colSums(counts_aligned)
+        med <- stats::median(lib[lib > 0])
+        if (is.finite(med) && med > 0) sf <- as.numeric(lib / med)
+      }
+      list(
+        counts_aligned = counts_aligned,
+        size_factor    = sf,
+        log_off        = log(pmax(sf, 1e-8)),
+        ok_mask        = ok
+      )
+    }
+
+    # 把 analyze_spatial_genes 作为依赖函数检查一下
+    if (!is.function(get0("analyze_spatial_genes", mode = "function"))) {
+      stop("需要函数 analyze_spatial_genes()，请确保已 source 进来。")
+    }
+
+    output$dl_gam_results <- downloadHandler(
+      filename = function() paste0("gam_results_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv"),
+      content  = function(file) {
+        withProgress(message = "Running GAM fitting ...", value = 0, {
+          req(rv$counts, rv$gene_names, rv$pos)
+          covar <- as.data.frame(multi_distance_df_r())   # <- 从外部 reactive 拿 covariates
+          stopifnot("barcode" %in% names(covar))
+
+          # 兼容你项目里的 compute_log_offset；没有就用兜底版
+          off_fun <- get0("compute_log_offset", mode = "function") %||% .compute_log_offset
+          off <- off_fun(rv$counts, covar$barcode, normalize = isTRUE(log1p_r()))
+          covar$size_factor   <- off$size_factor
+          covar$log_off       <- off$log_off
+          counts_aligned      <- off$counts_aligned
+
+          # 取 dist_* 作为平滑变量
+          distance_vars <- grep("^dist_", names(covar), value = TRUE)
+          if (length(distance_vars) == 0) stop("No dist_* columns found, 请先生成距离。")
+
+          # 参数：若外层 UI 没提供，就用默认值
+          k_val       <- (get0("input", ifnotfound = NULL)$svg_k %||% 6L)      # 你也可改成固定 6L
+          min_nnz_val <- (get0("input", ifnotfound = NULL)$svg_min_nnz %||% 100L)
+          topN_val    <- (get0("input", ifnotfound = NULL)$svg_topN %||% 1000L)
+
+          res <- analyze_spatial_genes(
+            counts            = counts_aligned,
+            genes             = rv$gene_names,
+            covar             = covar,
+            distance_vars     = distance_vars,
+            fam_nb            = mgcv::nb(link = "log"),
+            use_interaction   = FALSE,
+            k                 = as.integer(k_val),
+            min_nnz           = as.integer(min_nnz_val),
+            min_sum           = 0,
+            min_nnz_gene      = 1L,
+            top_n_expressed   = as.integer(topN_val)
+          )
+
+          utils::write.csv(res, file, row.names = FALSE)
+        })
+      }
+    )
+
+      gam_df <- reactive({
+        req(input$gam_csv)  # 注意：只有当 fileInput(ns("gam_csv")) 在 gamUI 里时，这里才看得到
+        df <- tryCatch(
+          utils::read.csv(input$gam_csv$datapath, stringsAsFactors = FALSE, check.names = FALSE),
+          error = function(e) NULL
+        )
+        req(!is.null(df))
+        nm <- trimws(names(df)); nm <- sub("^ï\\.+", "", nm); names(df) <- nm
+        if (!"gene" %in% names(df)) stop("CSV missing 'gene' column")
+        df
+      })
+    return(list(gam_df = gam_df))
+  })
+}

@@ -20,3 +20,33 @@ setup_download_selected <- function(output, id, pos_r, expr_vec_r, selected_idx_
     }
   )
 }
+
+
+# exportToolsUI_global <- function() {
+#   tagList(
+#     hr(), h4("Export & tools"),
+#     fluidRow(
+#       column(3, actionButton("clear_sel", "Clear selection")),
+#       column(3, downloadButton("dl_sel", "Download selected CSV")),
+#       column(3, verbatimTextOutput("sel_count")),
+#       column(3, downloadButton("dl_multi_distance", "Download all structure distances")),
+#       column(3, downloadButton(ns("dl_gam_results"), "Download GAM results"))
+#     )
+#   )
+# }
+
+exportToolsUI_global <- function() {
+  tagList(
+    hr(), h4("Export & tools"),
+    fluidRow(
+      column(3, actionButton("clear_sel", "Clear selection")),
+      # column(3, downloadButton("dl_sel", "Download selected CSV")),
+      column(3, verbatimTextOutput("sel_count")),
+      column(3, downloadButton("dl_multi_distance", "Download all structure distances"))
+    ),
+    fluidRow(
+      column(4, downloadButton(NS("gam", "dl_gam_results"), "Download GAM fitting results"))
+    )
+  )
+}
+
