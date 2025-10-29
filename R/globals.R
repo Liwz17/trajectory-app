@@ -29,3 +29,26 @@ library(viridisLite)
 # ---- 参数 ----
 MAX_GENES <- 500
 `%||%` <- function(a, b) if (!is.null(a) && length(a) > 0) a else b
+
+make_spe_from_matrix <- function(counts, pos_df = NULL, sample = NULL) {
+    stopifnot(is.matrix(counts) || is(counts, "dgCMatrix"))
+    if (is.null(colnames(counts))) stop("counts must have colnames as barcodes")
+    spe <- SpatialExperiment::SpatialExperiment(
+        assays = list(counts = counts),
+        rowData = S4Vectors::DataFrame(gene = rownames(counts)),
+        colData = S4Vectors::DataFrame(barcode = colnames(counts))
+    )
+    if (!is.null(sample)) colData(spe)$sample <- as.character(sample)
+    if (!is.null(pos_df) && "barcode" %in% names(pos_df)) {
+        m <- match(colnames(spe), pos_df$barcode)
+        if (any(!is.na(m))) {
+            for (nm in setdiff(names(pos_df), "barcode")) colData(spe)[[nm]] <- pos_df[[nm]][m]
+            xy <- c("x", "y")
+            if (all(xy %in% names(pos_df))) {
+                SpatialExperiment::spatialCoords(spe) <- as.matrix(pos_df[m, xy])
+                colnames(SpatialExperiment::spatialCoords(spe)) <- xy
+            }
+        }
+    }
+    spe
+}
